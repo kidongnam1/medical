@@ -30,10 +30,9 @@ LOG_FILE = BASE_DIR / "logs" / "app.log"
 logger = logging.getLogger("RubyPHRLink.ExcelImporter")
 logger.setLevel(logging.INFO)
 
-# 파일 핸들러 (UTF-8 인코딩 명시)
-if not (BASE_DIR / "logs").exists():
-    (BASE_DIR / "logs").mkdir(parents=True, exist_ok=True)
-file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+# 파일 핸들러 (5MB 회전 로거, UTF-8 인코딩)
+from logging.handlers import RotatingFileHandler
+file_handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=3, encoding="utf-8")
 file_formatter = logging.Formatter('[%(asctime)s] %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 file_handler.setFormatter(file_formatter)
 logger.addHandler(file_handler)
