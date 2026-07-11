@@ -12,13 +12,29 @@ Latest release: `v1.5.1`
 - `natural_language_agent.py` / `app_server.py`: DB 기반 자연어 건강 질의와 API 서버
 - `annotate_report.py`: 의료 영상에 주석을 넣어 리포트 생성
 
-## 실행 예시
+## 실행 순서
 
-```powershell
-.\run_insurance_test.bat
-.\run_agent_query.bat
-.\run_insurance_all.bat
-```
+1. DB 초기화 또는 상태 확인
+   - `python db_manager.py`
+2. 문서 대량 적재
+   - `.\run_insurance_all.bat`
+   - 또는 `python document_parser.py --dir "D:\남기동\수원\실손보험"`
+3. 과거 엑셀 이관이 필요하면 실행
+   - `python excel_importer.py`
+4. 미청구 실손보험 내역을 확인
+   - `python claim_helper.py`
+5. 자연어 질의 또는 API 서버를 실행
+   - `.\run_agent_query.bat`
+   - 또는 `python app_server.py`
+6. 릴리즈 전 점검
+   - `python release_helper.py 1.5.2 "docs: update release notes" --dry-run`
+
+## 스크린샷
+
+- 대량 문서 취합 실행 화면
+- 미청구 실손보험 조회 화면
+- 자연어 질의 응답 화면
+- API 서버 또는 대시보드 화면
 
 ## 저장소 구성
 

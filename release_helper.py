@@ -16,6 +16,7 @@ import sys
 import logging
 import traceback
 import subprocess
+import argparse
 import shutil
 import tempfile
 from pathlib import Path
@@ -48,7 +49,7 @@ def log_error(msg):
 def infer_release_section(commit_msg):
     text = commit_msg.strip()
     lower = text.lower()
-    prefix, _, body = text.partition(":")
+    _, _, body = text.partition(":")
     clean_body = body.strip() if body else text
 
     if lower.startswith(("feat:", "feature:", "add:", "added:")):
@@ -77,7 +78,7 @@ def run_git_cmd(args):
         raise
 
 # ─── 배포 관리 주 실행부 ───────────────────────────────────────────────────────
-def run_release(new_version, commit_msg):
+def run_release(new_version, commit_msg, dry_run=False):
     log_info("🚀 Ruby PHR Link 자동 릴리즈 배포 가동...")
     
     if not VERSION_FILE.exists():
@@ -89,6 +90,18 @@ def run_release(new_version, commit_msg):
         return
 
     try:
+        tag_name = f"v{new_version}"
+        release_notes = build_release_notes(new_version, commit_msg)
+
+        if dry_run:
+            log_info("🧪 DRY RUN 모드: 파일 수정과 git/gh 실행을 건너뜁니다.")
+            log_info(f"📝 대상 버전: {new_version}")
+            log_info("📝 생성될 릴리즈 노트:")
+            print(release_notes.rstrip())
+            log_info(f"🔖 예정 태그: {tag_name}")
+            log_info("📦 예정 작업: version.py 업데이트, CHANGELOG.md 삽입, git add/commit/push, tag 생성, GitHub release 동기화")
+            return
+
         # 1. version.py 업데이트
         log_info(f"📝 version.py 버전을 {new_version}으로 업데이트 중...")
         VERSION_FILE.write_text(f'# -*- coding: utf-8 -*-\nVERSION = "{new_version}"\n', encoding="utf-8")
@@ -97,7 +110,7 @@ def run_release(new_version, commit_msg):
         log_info("📝 CHANGELOG.md에 신규 릴리즈 노트 삽입 중...")
         changelog_content = CHANGELOG_FILE.read_text(encoding="utf-8")
 
-        new_entry = "\n" + build_release_notes(new_version, commit_msg) + "\n"
+        new_entry = "\n" + release_notes + "\n"
 
         # '모든 주요 릴리즈 및 기능 개선 사항 기록.' 텍스트 뒤에 신규 버전 블록을 밀어넣음
         target_marker = "모든 주요 릴리즈 및 기능 개선 사항 기록."
@@ -112,7 +125,7 @@ def run_release(new_version, commit_msg):
         # 3. Git 자동화 커밋 및 푸시
         log_info("📦 Git 스테이징 및 커밋 준비 중...")
         run_git_cmd(["git", "add", "version.py", "CHANGELOG.md"])
-        
+
         # 추가 변경 사항이 있는지 스테이징 검사
         status = run_git_cmd(["git", "status", "--porcelain"])
         if not status:
@@ -127,7 +140,6 @@ def run_release(new_version, commit_msg):
         log_info("🌐 GitHub 원격 저장소로 푸시 중...")
         run_git_cmd(["git", "push"])
 
-        tag_name = f"v{new_version}"
         existing_tag = run_git_cmd(["git", "tag", "--list", tag_name])
         if not existing_tag:
             log_info(f"🏷️ Git 태그 생성 중: {tag_name}")
@@ -137,9 +149,9 @@ def run_release(new_version, commit_msg):
             log_info(f"ℹ️ Git 태그 {tag_name} 는 이미 존재합니다.")
 
         if shutil.which("gh"):
-            release_notes = build_release_notes(new_version, commit_msg).strip() + "\n"
+            gh_notes = release_notes.strip() + "\n"
             with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".md") as tmp:
-                tmp.write(release_notes)
+                tmp.write(gh_notes)
                 notes_path = tmp.name
             try:
                 release_view = subprocess.run(
@@ -169,12 +181,10 @@ def run_release(new_version, commit_msg):
         log_error(traceback.format_exc())
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("사용법: python release_helper.py [신규버전] \"[릴리즈 메시지]\"")
-        print("예시: python release_helper.py 1.4.0 \"자연어 Q&A 릴리즈 기능 및 엑셀 대량 마이그레이션 모듈 구현 완료\"")
-        sys.exit(1)
-        
-    version_input = sys.argv[1].strip()
-    msg_input = sys.argv[2].strip()
-    
-    run_release(version_input, msg_input)
+    parser = argparse.ArgumentParser(description="Ruby PHR Link release helper")
+    parser.add_argument("version", help="new release version, for example 1.5.2")
+    parser.add_argument("message", help="release summary message")
+    parser.add_argument("--dry-run", action="store_true", help="preview release changes without writing files or pushing")
+    args = parser.parse_args()
+
+    run_release(args.version.strip(), args.message.strip(), dry_run=args.dry_run)
