@@ -2,8 +2,12 @@
 모든 주요 릴리즈 및 기능 개선 사항 기록.
 
 ## [1.5.1] - 2026-07-11
+### Added
+- `claim_helper.py` 추가: 미청구(UNCLAIMED) 실손보험 내역 조회 및 복사용 명세 출력
+- `--claim-all` 옵션 추가: 조회된 미청구 항목을 `CLAIMED` 상태로 일괄 전환
+
 ### Changed
-- feat: Add claim_helper.py for unclaimed insurance query
+- 실손보험 청구 흐름을 “조회 → 출력 → 일괄 전환” 중심으로 정리
 
 
 ## [1.5.0] - 2026-07-11
