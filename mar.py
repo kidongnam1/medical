@@ -3,7 +3,7 @@
 """
 의료영상 AI 판독 보고서 생성기 v1.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-모델  : claude-fable-5
+모델  : claude-3-5-sonnet-20241022
 인증  : Claude.ai 구독 OAuth (PKCE, 브라우저 로그인)
 입력  : 폴더 탐색기로 의료영상(JPG) 폴더 선택
 출력  : 주석 이미지(.jpg) + HTML 판독 보고서 3종
@@ -27,6 +27,7 @@ import secrets
 import hashlib
 import time
 import re
+import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from io import BytesIO
@@ -46,7 +47,7 @@ except ImportError:
     import anthropic
 
 # ─── 상수 ──────────────────────────────────────────────────────────────────
-MODEL        = "claude-fable-5"
+MODEL        = "claude-3-5-sonnet-20241022"
 OAUTH_PORT   = 8765
 REDIRECT_URI = f"http://localhost:{OAUTH_PORT}/callback"
 AUTH_URL     = "https://claude.ai/oauth/authorize"
@@ -424,6 +425,88 @@ def annotate_from_analysis(src_path, analysis, out_path):
     return os.path.getsize(out_path) // 1024
 
 
+# ─── DB 연동 헬퍼 ─────────────────────────────────────────────────────────
+import sqlite3
+
+def save_analysis_to_db(hospital_name, exam_date, img_path, annotated_path, analysis, log_fn=None):
+    """AI 분석 결과를 SQLite DB에 연동 기록"""
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "medical_history.db")
+    if not os.path.exists(db_path):
+        if log_fn:
+            log_fn(f"  ⚠️ DB 파일이 존재하지 않아 연동을 건너뜁니다: {db_path}", "warn")
+        return False
+    
+    # 날짜 포맷 변환 (YYYYMMDD -> YYYY-MM-DD)
+    date_str = str(exam_date)
+    if len(date_str) == 8:
+        date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+    elif len(date_str) == 10 and date_str.count("-") == 2:
+        pass # 이미 YYYY-MM-DD
+    else:
+        date_str = datetime.date.today().strftime("%Y-%m-%d")
+
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON;")
+        
+        # 1. 동일 날짜 및 동일 병원 진료 기록이 있는지 확인
+        cursor.execute("""
+            SELECT visit_id FROM hospital_visits 
+            WHERE visit_date = ? AND hospital_name = ?
+        """, (date_str, hospital_name))
+        row = cursor.fetchone()
+        
+        if row:
+            visit_id = row[0]
+        else:
+            # 새로운 진료 기록 추가
+            cursor.execute("""
+                INSERT INTO hospital_visits (visit_date, hospital_name, doctor_name, diagnosis, memo)
+                VALUES (?, ?, ?, ?, ?)
+            """, (date_str, hospital_name, "미지정", analysis.get("recommendation", "AI 분석"), "AI 판독 결과 연동 건"))
+            visit_id = cursor.lastrowid
+            
+        # 2. 개별 영상 중복 체크 (raw_path 기준)
+        cursor.execute("""
+            SELECT image_id FROM medical_images WHERE raw_path = ?
+        """, (img_path,))
+        img_row = cursor.fetchone()
+        
+        body_part = analysis.get("body_part", "UNKNOWN")
+        modality = analysis.get("image_type", "UNKNOWN")
+        ai_summary = analysis.get("korean_summary", "")
+        
+        if img_row:
+            # 기존 레코드 업데이트
+            cursor.execute("""
+                UPDATE medical_images 
+                SET visit_id = ?, body_part = ?, modality = ?, annotated_path = ?, ai_summary = ?
+                WHERE raw_path = ?
+            """, (visit_id, body_part, modality, annotated_path, ai_summary, img_path))
+            if log_fn:
+                log_fn(f"  💾 DB 업데이트 완료 (Image ID: {img_row[0]})", "ok")
+        else:
+            # 신규 레코드 추가
+            cursor.execute("""
+                INSERT INTO medical_images (visit_id, body_part, modality, raw_path, annotated_path, ai_summary)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (visit_id, body_part, modality, img_path, annotated_path, ai_summary))
+            if log_fn:
+                log_fn(f"  💾 DB 저장 완료 (Image ID: {cursor.lastrowid})", "ok")
+                
+        conn.commit()
+        return True
+    except Exception as e:
+        if log_fn:
+            log_fn(f"  ⚠️ DB 연동 실패: {e}", "err")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
 # ─── HTML 빌더 ────────────────────────────────────────────────────────────
 
 CSS = """
@@ -548,14 +631,14 @@ def build_html_report(folder_path, analyses, out_folder, hospital_name, exam_dat
 <body>
 <div class="container">
 <h1>🏥 의료영상 정밀 판독 보고서</h1>
-<p class="subtitle">{hospital_name} · {exam_date} 촬영 · Claude Fable 5 AI 보조 분석</p>
+<p class="subtitle">{hospital_name} · {exam_date} 촬영 · Claude 3.5 Sonnet AI 보조 분석</p>
 <div class="warn">⚠️ <b>주의</b>: AI 보조 분석 참고용. 정확한 진단·치료는 전문의 공식 판독을 따르십시오.</div>
 
 <h2>📋 검사 개요</h2>
 <div class="info-grid">
   <div class="info-card"><div class="lbl">검사일</div><div class="val">{exam_date}</div></div>
   <div class="info-card"><div class="lbl">병원</div><div class="val">{hospital_name}</div></div>
-  <div class="info-card"><div class="lbl">AI 모델</div><div class="val">claude-fable-5</div></div>
+  <div class="info-card"><div class="lbl">AI 모델</div><div class="val">claude-3-5-sonnet</div></div>
   <div class="info-card"><div class="lbl">분석 이미지</div><div class="val">{len(analyses)}장</div></div>
   <div class="info-card"><div class="lbl">분석일</div><div class="val">{today}</div></div>
 </div>
@@ -572,7 +655,7 @@ def build_html_report(folder_path, analyses, out_folder, hospital_name, exam_dat
 {doctors_html}
 
 <footer>
-  ⚠️ Claude Fable 5 AI 보조 분석 보고서 · 정확한 진단은 전문의 판독을 따르십시오<br>
+  ⚠️ Claude 3.5 Sonnet AI 보조 분석 보고서 · 정확한 진단은 전문의 판독을 따르십시오<br>
   촬영일: {exam_date} · 분석일: {today}
 </footer>
 </div></body></html>"""
@@ -671,7 +754,7 @@ class App(_AppBase):  # type: ignore[misc]
         hdr_frame = ctk.CTkFrame(left, fg_color=CARD2, corner_radius=0) if CTK else tk.Frame(left, bg=CARD2)
         hdr_frame.grid(row=0, column=0, sticky="ew", pady=(0, 1))
         self._lbl(hdr_frame, "🏥  Medical AI Reporter", size=15, bold=True, color=BLUE, pad=(20,14)).pack(anchor="w")
-        self._lbl(hdr_frame, "claude-fable-5  ·  구독 OAuth", size=10, color=TEXT2, pad=(21,0)).pack(anchor="w")
+        self._lbl(hdr_frame, "claude-3-5-sonnet-20241022  ·  구독 OAuth", size=10, color=TEXT2, pad=(21,0)).pack(anchor="w")
         self._lbl(hdr_frame, "", size=6, pad=(0,6)).pack()
 
         scroll_area = ctk.CTkScrollableFrame(left, fg_color=CARD, corner_radius=0) if CTK \
@@ -1045,6 +1128,8 @@ class App(_AppBase):  # type: ignore[misc]
                 try:
                     kb = annotate_from_analysis(img_path, ana, out_path)
                     self._log(f"  ✅  {os.path.basename(out_path)}  ({kb} KB)", "ok")
+                    # DB 연동 기록
+                    save_analysis_to_db(hospital, exam_date, img_path, out_path, ana, self._log)
                 except Exception as e:
                     self._log(f"  ⚠️  주석 오류: {e}", "warn")
             else:
