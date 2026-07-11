@@ -1,6 +1,11 @@
 # 📋 CHANGELOG - Ruby PHR Link
 모든 주요 릴리즈 및 기능 개선 사항 기록.
 
+## [1.5.1] - 2026-07-11
+### Changed
+- feat: Add claim_helper.py for unclaimed insurance query
+
+
 ## [1.5.0] - 2026-07-11
 ### Changed
 - feat: Add app_server.py API server and pre-aggregated database stats to NL agent
