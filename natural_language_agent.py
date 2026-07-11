@@ -79,6 +79,63 @@ def build_db_context():
     context_lines = []
 
     try:
+        # 0. 핵심 건강 지표 사전 연산 통계
+        context_lines.append("=== [데이터베이스 기반 핵심 사전 연산 통계 요약] ===")
+        
+        # 0-1. 가장 자주 방문한 병원 Top 3
+        cursor.execute("""
+            SELECT hospital_name, COUNT(*) as visit_count 
+            FROM hospital_visits 
+            GROUP BY hospital_name 
+            ORDER BY visit_count DESC 
+            LIMIT 3
+        """)
+        top_hospitals = cursor.fetchall()
+        h_stats = ", ".join([f"{h[0]} ({h[1]}회)" for h in top_hospitals])
+        context_lines.append(f"- 최다 방문 병원 순위: {h_stats}")
+        
+        # 0-2. 가장 오래 복용한 약물 Top 3
+        cursor.execute("""
+            SELECT medicine_name, SUM(duration_days) as total_days 
+            FROM prescriptions 
+            GROUP BY medicine_name 
+            ORDER BY total_days DESC 
+            LIMIT 3
+        """)
+        top_meds = cursor.fetchall()
+        m_stats = ", ".join([f"{m[0]} (총 {m[1]}일)" for m in top_meds])
+        context_lines.append(f"- 누적 최장 복용 약물: {m_stats}")
+        
+        # 0-3. 부위별 평균 통증 지수
+        cursor.execute("""
+            SELECT body_part, ROUND(AVG(pain_score), 1) as avg_pain, COUNT(*) as log_count 
+            FROM symptom_logs 
+            GROUP BY body_part 
+            ORDER BY avg_pain DESC
+        """)
+        avg_pains = cursor.fetchall()
+        p_stats = ", ".join([f"{p[0]} (평균 {p[1]}/10점, 기록 {p[2]}회)" for p in avg_pains])
+        context_lines.append(f"- 신체 부위별 평균 통증 강도: {p_stats or '기록 없음'}")
+        
+        # 0-4. 실손보험 청구 통계
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_claims,
+                SUM(CASE WHEN claim_status = 'UNCLAIMED' THEN patient_share ELSE 0 END) as unclaimed_sum,
+                SUM(CASE WHEN claim_status = 'CLAIMED' THEN patient_share ELSE 0 END) as claimed_sum,
+                SUM(CASE WHEN claim_status = 'PAID' THEN paid_amount ELSE 0 END) as paid_sum
+            FROM insurance_claims
+        """)
+        claim_summary = cursor.fetchone()
+        if claim_summary and claim_summary[0] > 0:
+            unclaimed = claim_summary[1] or 0.0
+            claimed = claim_summary[2] or 0.0
+            paid = claim_summary[3] or 0.0
+            context_lines.append(f"- 실손보험 진료비 통계: 누적 기록 {claim_summary[0]}건 | 미청구 대기금액: {unclaimed:,.0f}원 | 청구 진행금액: {claimed:,.0f}원 | 환급 완료금액: {paid:,.0f}원")
+        else:
+            context_lines.append("- 실손보험 진료비 통계: 누적 기록 없음")
+        context_lines.append("")
+
         # 1. 진료 및 병원 방문 기록 요약
         cursor.execute("SELECT visit_id, visit_date, hospital_name, doctor_name, diagnosis, memo FROM hospital_visits ORDER BY visit_date DESC")
         visits = cursor.fetchall()

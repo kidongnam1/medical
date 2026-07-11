@@ -1,6 +1,11 @@
 # 📋 CHANGELOG - Ruby PHR Link
 모든 주요 릴리즈 및 기능 개선 사항 기록.
 
+## [1.5.0] - 2026-07-11
+### Changed
+- feat: Add app_server.py API server and pre-aggregated database stats to NL agent
+
+
 ## [1.4.0] - 2026-07-11
 ### Changed
 - feat: Add release.bat and apply RotatingFileHandler for log rotation
