@@ -16,6 +16,8 @@ import sys
 import logging
 import traceback
 import subprocess
+import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 
@@ -42,6 +44,27 @@ def log_info(msg):
 def log_error(msg):
     print(f"❌ ERROR: {msg}", file=sys.stderr)
     logger.error(msg)
+
+def infer_release_section(commit_msg):
+    text = commit_msg.strip()
+    lower = text.lower()
+    prefix, _, body = text.partition(":")
+    clean_body = body.strip() if body else text
+
+    if lower.startswith(("feat:", "feature:", "add:", "added:")):
+        return "Added", clean_body
+    if lower.startswith(("fix:", "bugfix:", "hotfix:")):
+        return "Fixed", clean_body
+    if lower.startswith(("sec:", "security:")):
+        return "Security", clean_body
+    if lower.startswith(("docs:", "doc:", "refactor:", "chore:", "test:", "perf:", "style:")):
+        return "Changed", clean_body
+    return "Changed", text
+
+def build_release_notes(new_version, commit_msg):
+    today_str = datetime.today().strftime("%Y-%m-%d")
+    section, bullet = infer_release_section(commit_msg)
+    return f"## [{new_version}] - {today_str}\n### {section}\n- {bullet}\n"
 
 # ─── Git 명령어 실행 헬퍼 ───────────────────────────────────────────────────
 def run_git_cmd(args):
@@ -71,12 +94,11 @@ def run_release(new_version, commit_msg):
         VERSION_FILE.write_text(f'# -*- coding: utf-8 -*-\nVERSION = "{new_version}"\n', encoding="utf-8")
 
         # 2. CHANGELOG.md 자동 삽입
-        log_info("📝 CHANGELOG.md에 신규 릴리즈 영역 확보 중...")
+        log_info("📝 CHANGELOG.md에 신규 릴리즈 노트 삽입 중...")
         changelog_content = CHANGELOG_FILE.read_text(encoding="utf-8")
-        
-        today_str = datetime.today().strftime("%Y-%m-%d")
-        new_entry = f"\n## [{new_version}] - {today_str}\n### Changed\n- {commit_msg}\n"
-        
+
+        new_entry = "\n" + build_release_notes(new_version, commit_msg) + "\n"
+
         # '모든 주요 릴리즈 및 기능 개선 사항 기록.' 텍스트 뒤에 신규 버전 블록을 밀어넣음
         target_marker = "모든 주요 릴리즈 및 기능 개선 사항 기록."
         if target_marker in changelog_content:
@@ -104,7 +126,42 @@ def run_release(new_version, commit_msg):
         # 원격 푸시
         log_info("🌐 GitHub 원격 저장소로 푸시 중...")
         run_git_cmd(["git", "push"])
-        
+
+        tag_name = f"v{new_version}"
+        existing_tag = run_git_cmd(["git", "tag", "--list", tag_name])
+        if not existing_tag:
+            log_info(f"🏷️ Git 태그 생성 중: {tag_name}")
+            run_git_cmd(["git", "tag", "-a", tag_name, "-m", tag_name])
+            run_git_cmd(["git", "push", "origin", tag_name])
+        else:
+            log_info(f"ℹ️ Git 태그 {tag_name} 는 이미 존재합니다.")
+
+        if shutil.which("gh"):
+            release_notes = build_release_notes(new_version, commit_msg).strip() + "\n"
+            with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".md") as tmp:
+                tmp.write(release_notes)
+                notes_path = tmp.name
+            try:
+                release_view = subprocess.run(
+                    ["gh", "release", "view", tag_name],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8"
+                )
+                if release_view.returncode == 0:
+                    log_info(f"📝 GitHub 릴리즈 {tag_name} 업데이트 중...")
+                    run_git_cmd(["gh", "release", "edit", tag_name, "--notes-file", notes_path])
+                else:
+                    log_info(f"📝 GitHub 릴리즈 {tag_name} 생성 중...")
+                    run_git_cmd(["gh", "release", "create", tag_name, "--title", tag_name, "--notes-file", notes_path])
+            finally:
+                try:
+                    os.unlink(notes_path)
+                except OSError:
+                    pass
+        else:
+            log_info("ℹ gh CLI가 없어 GitHub 릴리즈 생성은 건너뜁니다.")
+
         log_info(f"🎉 릴리즈 v{new_version} 배포가 성공적으로 완료되었습니다!")
 
     except Exception as e:
