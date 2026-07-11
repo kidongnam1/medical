@@ -1,6 +1,11 @@
 # 📋 CHANGELOG - Ruby PHR Link
 모든 주요 릴리즈 및 기능 개선 사항 기록.
 
+## [1.4.0] - 2026-07-11
+### Changed
+- feat: Add release.bat and apply RotatingFileHandler for log rotation
+
+
 ## [1.3.1] - 2026-07-11
 ### Changed
 - CHANGELOG 및 자동 릴리즈 헬퍼 탑재
