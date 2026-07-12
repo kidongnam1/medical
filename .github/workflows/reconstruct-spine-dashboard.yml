@@ -23,10 +23,16 @@ jobs:
       (github.event_name == 'pull_request' && github.event.pull_request.title == 'trigger: reconstruct spine dashboard')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+      - name: Checkout main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin main
+          git checkout -B main FETCH_HEAD
 
       - name: Reconstruct and verify dashboard
         shell: bash
@@ -38,12 +44,15 @@ jobs:
             head -c 6000 "spine-doctors-dashboard/.import/dashboard.html.xz.hex.part${i}" >> /tmp/dashboard.hex
           done
           cat spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11 >> /tmp/dashboard.hex
+          echo "hex-bytes=$(wc -c < /tmp/dashboard.hex)"
           test "$(wc -c < /tmp/dashboard.hex)" -eq 71536
           xxd -r -p /tmp/dashboard.hex > /tmp/dashboard.html.xz
+          sha256sum /tmp/dashboard.html.xz
           echo "844ab5ce0cc5966e11f40f1ed5454d9e32761a23f774922165f07aeea2716368  /tmp/dashboard.html.xz" \
             | sha256sum --check -
           xz --decompress --stdout /tmp/dashboard.html.xz \
             > spine-doctors-dashboard/index.html
+          sha256sum spine-doctors-dashboard/index.html
           echo "d84857f4f94888fb49efa97d61cb6a3f76b105c69ab0abf0ceee92c66856ef8e  spine-doctors-dashboard/index.html" \
             | sha256sum --check -
           python - <<'PY'
