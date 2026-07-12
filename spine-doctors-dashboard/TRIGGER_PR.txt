@@ -1,3 +1,2 @@
 One-time pull request trigger for dashboard reconstruction.
-Retry after archive chunk validation fix.
-Retry with concise diagnostic checkout.
+Final retry: force-add verified HTML excluded by repository gitignore.
