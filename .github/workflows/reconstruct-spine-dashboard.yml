@@ -7,6 +7,8 @@ on:
       - '.github/workflows/reconstruct-spine-dashboard.yml'
   issues:
     types: [opened]
+  pull_request:
+    types: [opened]
   workflow_dispatch:
 
 permissions:
@@ -14,11 +16,16 @@ permissions:
 
 jobs:
   reconstruct:
-    if: github.event_name != 'issues' || github.event.issue.title == 'trigger: reconstruct spine dashboard'
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.issue.title == 'trigger: reconstruct spine dashboard') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.title == 'trigger: reconstruct spine dashboard')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Reconstruct and verify dashboard
@@ -65,4 +72,4 @@ jobs:
             exit 0
           fi
           git commit -m "feat: add interactive dashboard for 222 spine specialists"
-          git push
+          git push origin HEAD:main
