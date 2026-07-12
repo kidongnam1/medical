@@ -8,7 +8,7 @@ on:
   issues:
     types: [opened]
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
   workflow_dispatch:
 
 permissions:
@@ -33,9 +33,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p spine-doctors-dashboard
-          cat spine-doctors-dashboard/.import/dashboard.html.xz.hex.part* \
-            | xxd -r -p \
-            | xz --decompress --stdout \
+          : > /tmp/dashboard.hex
+          for i in $(seq -w 0 10); do
+            head -c 6000 "spine-doctors-dashboard/.import/dashboard.html.xz.hex.part${i}" >> /tmp/dashboard.hex
+          done
+          cat spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11 >> /tmp/dashboard.hex
+          test "$(wc -c < /tmp/dashboard.hex)" -eq 71536
+          xxd -r -p /tmp/dashboard.hex > /tmp/dashboard.html.xz
+          echo "844ab5ce0cc5966e11f40f1ed5454d9e32761a23f774922165f07aeea2716368  /tmp/dashboard.html.xz" \
+            | sha256sum --check -
+          xz --decompress --stdout /tmp/dashboard.html.xz \
             > spine-doctors-dashboard/index.html
           echo "d84857f4f94888fb49efa97d61cb6a3f76b105c69ab0abf0ceee92c66856ef8e  spine-doctors-dashboard/index.html" \
             | sha256sum --check -
