@@ -5,6 +5,8 @@ on:
     paths:
       - 'spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11'
       - '.github/workflows/reconstruct-spine-dashboard.yml'
+  issues:
+    types: [opened]
   workflow_dispatch:
 
 permissions:
@@ -12,6 +14,7 @@ permissions:
 
 jobs:
   reconstruct:
+    if: github.event_name != 'issues' || github.event.issue.title == 'trigger: reconstruct spine dashboard'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
