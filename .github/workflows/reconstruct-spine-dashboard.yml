@@ -1,12 +1,6 @@
 name: Reconstruct spine dashboard
 
 on:
-  push:
-    paths:
-      - 'spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11'
-      - '.github/workflows/reconstruct-spine-dashboard.yml'
-  issues:
-    types: [opened]
   pull_request:
     types: [opened, synchronize]
   workflow_dispatch:
@@ -17,13 +11,11 @@ permissions:
 jobs:
   reconstruct:
     if: >-
-      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && github.event.issue.title == 'trigger: reconstruct spine dashboard') ||
       (github.event_name == 'pull_request' && github.event.pull_request.title == 'trigger: reconstruct spine dashboard')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout main and source archive
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -33,26 +25,27 @@ jobs:
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin main
           git checkout -B main FETCH_HEAD
+          git fetch --depth=1 origin 7d4b152e5f981b873e391944b7dbcb3ceca86e76
 
       - name: Reconstruct and verify dashboard
         shell: bash
         run: |
           set -euo pipefail
+          SOURCE_COMMIT="7d4b152e5f981b873e391944b7dbcb3ceca86e76"
           mkdir -p spine-doctors-dashboard
           : > /tmp/dashboard.hex
           for i in $(seq -w 0 10); do
-            head -c 6000 "spine-doctors-dashboard/.import/dashboard.html.xz.hex.part${i}" >> /tmp/dashboard.hex
+            git show "${SOURCE_COMMIT}:spine-doctors-dashboard/.import/dashboard.html.xz.hex.part${i}" \
+              | head -c 6000 >> /tmp/dashboard.hex
           done
-          cat spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11 >> /tmp/dashboard.hex
-          echo "hex-bytes=$(wc -c < /tmp/dashboard.hex)"
+          git show "${SOURCE_COMMIT}:spine-doctors-dashboard/.import/dashboard.html.xz.hex.part11" \
+            >> /tmp/dashboard.hex
           test "$(wc -c < /tmp/dashboard.hex)" -eq 71536
           xxd -r -p /tmp/dashboard.hex > /tmp/dashboard.html.xz
-          sha256sum /tmp/dashboard.html.xz
           echo "844ab5ce0cc5966e11f40f1ed5454d9e32761a23f774922165f07aeea2716368  /tmp/dashboard.html.xz" \
             | sha256sum --check -
           xz --decompress --stdout /tmp/dashboard.html.xz \
             > spine-doctors-dashboard/index.html
-          sha256sum spine-doctors-dashboard/index.html
           echo "d84857f4f94888fb49efa97d61cb6a3f76b105c69ab0abf0ceee92c66856ef8e  spine-doctors-dashboard/index.html" \
             | sha256sum --check -
           python - <<'PY'
@@ -75,7 +68,6 @@ jobs:
           )
           Path("spine-doctors-dashboard/README.md").write_text(text, encoding="utf-8")
           PY
-          rm -rf spine-doctors-dashboard/.import
 
       - name: Commit reconstructed dashboard
         shell: bash
@@ -83,9 +75,10 @@ jobs:
           set -euo pipefail
           git config user.name "RubyRio"
           git config user.email "kidong.nam@gmail.com"
-          git add -A spine-doctors-dashboard
+          git add -f spine-doctors-dashboard/index.html
+          git add spine-doctors-dashboard/README.md
           if git diff --cached --quiet; then
             exit 0
           fi
-          git commit -m "feat: add interactive dashboard for 222 spine specialists"
+          git commit -m "feat: add verified spine specialists dashboard HTML"
           git push origin HEAD:main
